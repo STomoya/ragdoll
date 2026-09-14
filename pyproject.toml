@@ -1,0 +1,20 @@
+[project]
+name = "ragdoll"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Tomoya Sawada", email = "stomoya0110@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2"]
+
+[dependency-groups]
+dev = ["pytest", "pytest-mock"]
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+extend-exclude = ["*.md"]

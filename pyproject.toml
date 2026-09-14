@@ -107,6 +107,7 @@ ignore = [
     "PLC2701", # import private name -- patching stuff in third party packages requires this. I do this relatively frequently.
     "PLR0913", # too many arguments -- Setting max value isn't solving anything. Just remove this.
     "C408",    # dict().
+    "COM812",
 ]
 # flake8-annotations = { allow-star-arg-any = true }  # TODO: decide if we need this.
 mccabe = { max-complexity = 14 }  # Taken from pydantic. We'll see if this fits me.

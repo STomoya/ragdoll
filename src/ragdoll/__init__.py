@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from ragdoll!"
+"""ragdoll: staged, method-agnostic RAG implementation and evaluation harness."""

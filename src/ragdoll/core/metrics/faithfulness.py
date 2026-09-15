@@ -12,11 +12,11 @@ from ragdoll.core.clients import generate_chat
 if TYPE_CHECKING:
     from ragdoll.core.schema import Query, RAGResponse
 
-# Default only -- pass a different judge_model explicitly to score_faithfulness
-# / evaluate_combination when it would otherwise match the generator under
-# test: a model tends to score its own outputs more favorably (self-preference
-# bias), which would bias faithfulness comparisons across combinations.
-DEFAULT_JUDGE_MODEL = 'gpt-4o-mini'
+# Deliberately different from any generator's default model: a model tends to
+# score its own outputs more favorably (self-preference bias), which would
+# bias faithfulness comparisons across combinations. Pass judge_model
+# explicitly if a generator under test happens to use this same model.
+DEFAULT_JUDGE_MODEL = 'gpt-4o'
 _JUDGE_PROMPT_VERSION = '2026-09-15-v2'
 # Reasoning models spend part of max_tokens on hidden reasoning tokens before
 # any visible output, so this needs headroom beyond just the score digit or

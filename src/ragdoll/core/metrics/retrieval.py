@@ -45,7 +45,12 @@ def compute_retrieval_metrics(
             mrr = 1.0 / rank
             break
 
-    dcg = sum(1.0 / math.log2(rank + 1) for rank, context in enumerate(top_k, start=1) if context.doc_id in gold_ids)
+    seen_doc_ids: set[str] = set()
+    dcg = 0.0
+    for rank, context in enumerate(top_k, start=1):
+        if context.doc_id in gold_ids and context.doc_id not in seen_doc_ids:
+            dcg += 1.0 / math.log2(rank + 1)
+            seen_doc_ids.add(context.doc_id)
     ideal_hits = min(len(gold_ids), len(top_k))
     idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
     ndcg_at_k = dcg / idcg if idcg > 0 else 0.0

@@ -14,10 +14,11 @@ if TYPE_CHECKING:
 
 
 def test_run_pipeline_end_to_end(mocker: MockerFixture) -> None:
+    generation_latency_ms = 3.0
     mocker.patch('ragdoll.stages.retrievers.dense.embed_texts', return_value=([[0.1, 0.2]], 1.0))
     mocker.patch(
         'ragdoll.stages.generators.single_shot.generate_chat',
-        return_value=('an answer', 3.0, {'prompt_tokens': 1, 'completion_tokens': 1}),
+        return_value=('an answer', generation_latency_ms, {'prompt_tokens': 1, 'completion_tokens': 1}),
     )
 
     retriever_entry = retrievers.get('dense')
@@ -33,3 +34,5 @@ def test_run_pipeline_end_to_end(mocker: MockerFixture) -> None:
     assert response.query_id == 'q1'
     assert response.answer == 'an answer'
     assert len(response.retrieved_contexts) == 1
+    # retrieval-stage wall time must be added on top of generation latency, not silently dropped.
+    assert response.latency_ms > generation_latency_ms

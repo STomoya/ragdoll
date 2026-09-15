@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
@@ -29,6 +30,8 @@ class StageCombination(BaseModel):
 
 def run_pipeline(combination: StageCombination, index_handle: IndexHandle, query: Query) -> RAGResponse:
     """Run one query through a stage combination against a built index."""
+    pre_generation_start = time.perf_counter()
+
     qt_entry = query_transforms.get(combination.query_transform)
     query_transform = qt_entry.cls(qt_entry.config_model(**combination.query_transform_config))
     transformed_query = query_transform(query)
@@ -41,6 +44,10 @@ def run_pipeline(combination: StageCombination, index_handle: IndexHandle, query
     reranker = reranker_entry.cls(reranker_entry.config_model(**combination.reranker_config))
     reranked_contexts = reranker(query, retrieved_contexts)
 
+    pre_generation_latency_ms = (time.perf_counter() - pre_generation_start) * 1000
+
     generator_entry = generators.get(combination.generator)
     generator = generator_entry.cls(generator_entry.config_model(**combination.generator_config))
-    return generator(query, reranked_contexts)
+    response = generator(query, reranked_contexts)
+    response.latency_ms += pre_generation_latency_ms
+    return response

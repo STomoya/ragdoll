@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 
     from ragdoll.stages.retrievers.dense import DenseIndex
 
-import ragdoll.stages  # noqa: F401  (registers every stage implementation)
+import ragdoll.core.runner
+import ragdoll.stages
 from ragdoll.core import registry
 from ragdoll.core.pipeline import StageCombination
 from ragdoll.core.runner import IncompatibleStagesError, build_index, expand_grid, run_combination
@@ -75,6 +76,28 @@ def test_run_combination_runs_every_query(mocker: MockerFixture) -> None:
     responses = run_combination(combination, index_handle, queries)
 
     assert [r.query_id for r in responses] == ['q1', 'q2']
+
+
+def test_run_combination_builds_stages_once_for_all_queries(mocker: MockerFixture) -> None:
+    mocker.patch('ragdoll.stages.retrievers.dense.embed_texts', return_value=([[0.1, 0.2]], 1.0))
+    mocker.patch(
+        'ragdoll.stages.generators.single_shot.generate_chat',
+        return_value=('an answer', 3.0, {'prompt_tokens': 1, 'completion_tokens': 1}),
+    )
+    build_stages_spy = mocker.patch(
+        'ragdoll.core.runner.build_pipeline_stages',
+        wraps=ragdoll.core.runner.build_pipeline_stages,
+    )
+    documents = [Document(doc_id='d1', text='short doc')]
+    index_handle = build_index('fixed_size', 'dense', documents)
+    combination = StageCombination(chunker='fixed_size', retriever='dense', generator='single_shot')
+    queries = [Query(query_id='q1', text='q1?', lang='en'), Query(query_id='q2', text='q2?', lang='en')]
+
+    run_combination(combination, index_handle, queries)
+
+    # stages are instantiated once per combination and reused across queries,
+    # not re-instantiated (with a fresh registry lookup + config validation) per query.
+    build_stages_spy.assert_called_once_with(combination)
 
 
 @pytest.mark.usefixtures('incompatible_fixed_size_dense')

@@ -5,7 +5,7 @@ from __future__ import annotations
 from itertools import product
 from typing import TYPE_CHECKING, Any
 
-from ragdoll.core.pipeline import StageCombination, run_pipeline
+from ragdoll.core.pipeline import StageCombination, build_pipeline_stages, run_pipeline_stages
 from ragdoll.core.registry import chunkers, incompatibility_reason, is_compatible, retrievers
 
 if TYPE_CHECKING:
@@ -64,4 +64,5 @@ def run_combination(
     queries: list[Query],
 ) -> list[RAGResponse]:
     """Run every query through one stage combination against a built index."""
-    return [run_pipeline(combination, index_handle, query) for query in queries]
+    stages = build_pipeline_stages(combination)
+    return [run_pipeline_stages(stages, index_handle, query) for query in queries]

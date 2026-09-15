@@ -12,9 +12,16 @@ from ragdoll.core.clients import generate_chat
 if TYPE_CHECKING:
     from ragdoll.core.schema import Query, RAGResponse
 
-_JUDGE_MODEL = 'gpt-4o-mini'
-_JUDGE_PROMPT_VERSION = '2026-09-15-v1'
-_JUDGE_MAX_TOKENS = 16
+# Default only -- pass a different judge_model explicitly to score_faithfulness
+# / evaluate_combination when it would otherwise match the generator under
+# test: a model tends to score its own outputs more favorably (self-preference
+# bias), which would bias faithfulness comparisons across combinations.
+DEFAULT_JUDGE_MODEL = 'gpt-4o-mini'
+_JUDGE_PROMPT_VERSION = '2026-09-15-v2'
+# Reasoning models spend part of max_tokens on hidden reasoning tokens before
+# any visible output, so this needs headroom beyond just the score digit or
+# the judge call returns an empty completion.
+_JUDGE_MAX_TOKENS = 8192
 _JUDGE_TEMPERATURE = 0.0
 _SCORE_PATTERN = re.compile(r'(\d*\.?\d+)')
 
@@ -23,9 +30,10 @@ class FaithfulnessMetrics(BaseModel):
     """Mean LLM-judged faithfulness score across a run's queries."""
 
     faithfulness: float
+    judge_model: str
 
 
-def score_faithfulness(query: Query, response: RAGResponse) -> float:
+def score_faithfulness(query: Query, response: RAGResponse, judge_model: str = DEFAULT_JUDGE_MODEL) -> float:
     """Ask an LLM judge what fraction of the answer's claims are supported by its retrieved contexts."""
     context_block = '\n\n'.join(
         f'[{i}] {context.text}' for i, context in enumerate(response.retrieved_contexts, start=1)
@@ -43,7 +51,7 @@ def score_faithfulness(query: Query, response: RAGResponse) -> float:
     # token_usage) and fold it into EfficiencyMetrics in evaluate.py.
     judged_text, _latency_ms, _token_usage = generate_chat(
         [{'role': 'user', 'content': prompt}],
-        _JUDGE_MODEL,
+        judge_model,
         _JUDGE_MAX_TOKENS,
         _JUDGE_TEMPERATURE,
     )

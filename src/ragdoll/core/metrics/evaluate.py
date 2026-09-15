@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from ragdoll.core.metrics.correctness import CorrectnessMetrics, compute_correctness_metrics
 from ragdoll.core.metrics.efficiency import EfficiencyMetrics, compute_efficiency_metrics
-from ragdoll.core.metrics.faithfulness import FaithfulnessMetrics, score_faithfulness
+from ragdoll.core.metrics.faithfulness import DEFAULT_JUDGE_MODEL, FaithfulnessMetrics, score_faithfulness
 from ragdoll.core.metrics.retrieval import RetrievalMetrics, compute_retrieval_metrics
 from ragdoll.core.pipeline import StageCombination  # noqa: TC001 (used as a Pydantic field type; needed at runtime)
 
@@ -35,8 +35,13 @@ def evaluate_combination(
     combination: StageCombination,
     responses: list[RAGResponse],
     queries: list[Query],
+    judge_model: str = DEFAULT_JUDGE_MODEL,
 ) -> EvaluationResult:
-    """Score a combination's responses against their queries' gold fields, averaged across queries."""
+    """Score a combination's responses against their queries' gold fields, averaged across queries.
+
+    Pass judge_model explicitly when it would otherwise match the generator
+    under test, to avoid self-preference bias in the faithfulness score.
+    """
     queries_by_id = {query.query_id: query for query in queries}
 
     retrieval_scores: list[RetrievalMetrics] = []
@@ -47,7 +52,7 @@ def evaluate_combination(
         query = queries_by_id[response.query_id]
         retrieval_scores.append(compute_retrieval_metrics(response.retrieved_contexts, query.gold_doc_ids))
         correctness_scores.append(compute_correctness_metrics(response.answer, query.gold_answers))
-        faithfulness_scores.append(score_faithfulness(query, response))
+        faithfulness_scores.append(score_faithfulness(query, response, judge_model=judge_model))
 
     return EvaluationResult(
         combination=combination,
@@ -63,5 +68,5 @@ def evaluate_combination(
             f1=_mean([m.f1 for m in correctness_scores]),
         ),
         efficiency=compute_efficiency_metrics(responses),
-        faithfulness=FaithfulnessMetrics(faithfulness=_mean(faithfulness_scores)),
+        faithfulness=FaithfulnessMetrics(faithfulness=_mean(faithfulness_scores), judge_model=judge_model),
     )

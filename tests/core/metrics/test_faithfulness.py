@@ -57,3 +57,15 @@ def test_unparseable_judge_response_scores_zero(mocker: MockerFixture) -> None:
     score = score_faithfulness(query, response)
 
     assert score == pytest.approx(0.0)
+
+
+def test_uses_given_judge_model_instead_of_default(mocker: MockerFixture) -> None:
+    mock_generate_chat = mocker.patch(
+        'ragdoll.core.metrics.faithfulness.generate_chat',
+        return_value=('1.0', _MOCK_LATENCY_MS, _MOCK_TOKEN_USAGE),
+    )
+    query, response = _query_and_response('anything')
+
+    score_faithfulness(query, response, judge_model='a-different-model')
+
+    assert mock_generate_chat.call_args.args[1] == 'a-different-model'

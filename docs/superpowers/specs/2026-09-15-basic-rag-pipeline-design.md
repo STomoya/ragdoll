@@ -18,7 +18,11 @@ implementations — those stay out of scope per AGENTS.md.
 
 - `sentence-transformers` — local embedding model for the dense retriever.
 - `openai` — OpenAI-compatible chat client for generation.
-- `datasets` — Hugging Face `datasets` library, to load KILT/NQ.
+- `datasets` — Hugging Face `datasets` library, to load the NQ/KILT query set.
+- `requests` — to stream the raw KILT Wikipedia knowledge source directly
+  (see the corrected benchmark-adapter section below — the installed
+  `datasets` version no longer supports the script-based loader that dataset
+  needs, confirmed by actually running it, not assumed).
 - `numpy` — used directly by the dense retriever for cosine similarity.
 
 ## Stage calling convention (new — not fixed elsewhere)
@@ -118,19 +122,30 @@ transform → retrieve → rerank → generate in sequence, returning the
 
 ## Benchmark adapter: `benchmarks/natural_questions.py`
 
-Confirmed via the Hugging Face Hub (dataset structure inspected directly,
-not guessed):
+Confirmed by actually running each data-loading path, not by guessing from
+memory:
 
-- `facebook/kilt_tasks`, config `"nq"` — small (≤14MB/split), has Hub parquet
-  export, loads without `trust_remote_code`. Row shape: `id`, `input`
-  (question text), `output` (list of `{answer, provenance: list of
-  {wikipedia_id, title, ...}}`).
-- `facebook/kilt_wikipedia`, config `"2019-08-01"`, split `"full"` — the
-  Wikipedia knowledge source. This is a *script-based* dataset
-  (`trust_remote_code=True` required) that downloads one ~30GB+ JSON-lines
-  file; row shape: `wikipedia_id`, `wikipedia_title`, `text.paragraph` (list
-  of paragraph strings). Streaming mode (`streaming=True`) reads it lazily
-  over HTTP without a full download.
+- `facebook/kilt_tasks`, config `"nq"` — small (≤14MB/split), has a Hub
+  parquet export, loads via plain `datasets.load_dataset('facebook/kilt_tasks',
+  'nq', split=split)`. Row shape (verified against a real fetched row): `id`,
+  `input` (question text), `output` — a **list** of
+  `{answer: str, meta: {...}, provenance: list[{wikipedia_id: str, title, section, ...}]}`
+  dicts (i.e. the natural nested list-of-dicts shape, not a columnar
+  dict-of-lists — Arrow's struct-list decoding gives plain Python lists of
+  dicts here).
+- `facebook/kilt_wikipedia` **cannot be loaded via the `datasets` library**:
+  it's a script-based (`GeneratorBasedBuilder`) dataset, and the installed
+  `datasets` version raises `RuntimeError: Dataset scripts are no longer
+  supported` — `trust_remote_code` isn't even accepted anymore. Instead,
+  fetch what that script would have downloaded directly:
+  `http://dl.fbaipublicfiles.com/KILT/kilt_knowledgesource.json`, a single
+  JSON-lines file, streamed with `requests.get(url, stream=True)` and
+  `response.iter_lines()`. Verified real line shape:
+  `{"_id", "wikipedia_id": "<str>", "wikipedia_title": "<str>", "text": ["<paragraph 1>\n", "<paragraph 2>\n", ...], "anchors": [...], "categories", "history", "wikidata_info"}`
+  — `text` is already a flat `list[str]` of paragraphs (each with a
+  trailing `\n`), no nested wrapping. `wikipedia_id` is a numeric-looking
+  string, matching the type of `provenance[*].wikipedia_id` from the nq
+  task rows above, so they compare equal directly as strings.
 
 Adapter function:
 
@@ -144,20 +159,19 @@ def load_natural_questions(
 
 1. Load `facebook/kilt_tasks` (`"nq"`, `split`) fully (small), take the first
    `n_queries` rows. Build `Query`s: `query_id=id`, `text=input`, `lang="en"`,
-   `gold_answers` = non-empty `output[*].answer`, `gold_doc_ids` = the unique
-   `wikipedia_id`s across `output[*].provenance`.
-2. Stream `facebook/kilt_wikipedia` (`"2019-08-01"`, `split="full"`,
-   `streaming=True`, `trust_remote_code=True`). For each article: if its
-   `wikipedia_id` is one of the queries' gold ids, keep it as a gold
-   `Document`; otherwise keep it as a distractor until `n_distractors` are
-   collected. Stop iterating once every gold id has been found *and*
-   `n_distractors` distractors are collected. Marked with a `ponytail:`
-   comment in code: linear scan with early exit is fine for a handful of
-   queries, but if ids are scattered this can still scan a large prefix of
-   the dump — a real subset needs an indexed lookup or a pre-filtered local
-   KILT dump.
-3. `Document.text` = `"\n\n".join(text.paragraph)`, `title=wikipedia_title`,
-   `doc_id=wikipedia_id`.
+   `gold_answers` = non-empty `output[*]['answer']`, `gold_doc_ids` = the
+   unique `wikipedia_id`s across `output[*]['provenance'][*]['wikipedia_id']`.
+2. Stream `kilt_knowledgesource.json` line by line via `requests`. For each
+   parsed line: if its `wikipedia_id` is one of the queries' gold ids, keep
+   it as a gold `Document`; otherwise keep it as a distractor until
+   `n_distractors` are collected. Stop iterating (and close the response)
+   once every gold id has been found *and* `n_distractors` distractors are
+   collected. Marked with a `ponytail:` comment in code: linear scan with
+   early exit is fine for a handful of queries, but if ids are scattered
+   this can still scan a large prefix of the file — a real subset needs an
+   indexed lookup or a pre-filtered local KILT dump.
+3. `Document.text` = `"".join(text)` (paragraphs already carry their own
+   trailing newlines), `title=wikipedia_title`, `doc_id=wikipedia_id`.
 4. Return `(documents, queries)`.
 
 ## Testing
@@ -174,9 +188,10 @@ def load_natural_questions(
 - One integration test (`tests/core/test_pipeline.py` or similar) runs
   `run_pipeline` end-to-end over synthetic `Document`/`Query` fixtures with
   both clients mocked — no real API/model calls in the test suite.
-- `benchmarks/test_natural_questions.py` mocks `datasets.load_dataset` for
-  both configs (small fixed fixture rows) rather than hitting the network in
-  CI.
+- `benchmarks/test_natural_questions.py` mocks `datasets.load_dataset` (for
+  the nq task rows) and `requests.get` (for the streamed knowledge-source
+  lines, via a fake response whose `iter_lines()` yields a handful of fixed
+  JSON lines) rather than hitting the network in CI.
 
 ## File layout additions
 

@@ -45,10 +45,9 @@ def generate_chat(
         temperature=temperature,
     )
     latency_ms = (time.perf_counter() - start) * 1000
-    assert response.usage is not None
-    assert response.choices[0].message.content is not None
+    content = response.choices[0].message.content if response.choices else None
     token_usage = {
-        'prompt_tokens': response.usage.prompt_tokens,
-        'completion_tokens': response.usage.completion_tokens,
+        'prompt_tokens': response.usage.prompt_tokens if response.usage else 0,
+        'completion_tokens': response.usage.completion_tokens if response.usage else 0,
     }
-    return response.choices[0].message.content, latency_ms, token_usage
+    return content or '', latency_ms, token_usage

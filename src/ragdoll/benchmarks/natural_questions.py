@@ -17,6 +17,10 @@ from ragdoll.core.schema import Document, Query
 
 _TASKS_REPO = 'facebook/kilt_tasks'
 _KNOWLEDGE_SOURCE_URL = 'https://dl.fbaipublicfiles.com/KILT/kilt_knowledgesource.json'
+# Safety net for gold ids absent from the knowledge source (should not happen
+# for a well-formed KILT split, but would otherwise stream the ~35GB dump to
+# the end looking for an id that isn't there).
+_MAX_SCANNED_ENTRIES = 2_000_000
 
 
 def load_natural_questions(
@@ -51,6 +55,7 @@ def _collect_documents(gold_ids: set[str], n_distractors: int) -> list[Document]
     documents: list[Document] = []
     found_gold_ids: set[str] = set()
     distractor_count = 0
+    scanned = 0
 
     response = requests.get(_KNOWLEDGE_SOURCE_URL, stream=True, timeout=30)
     try:
@@ -61,9 +66,12 @@ def _collect_documents(gold_ids: set[str], n_distractors: int) -> list[Document]
         for line in response.iter_lines():
             if not line:
                 continue
+            scanned += 1
             article = json.loads(line)
             is_gold = article['wikipedia_id'] in gold_ids
             if not is_gold and distractor_count >= n_distractors:
+                if scanned >= _MAX_SCANNED_ENTRIES:
+                    break
                 continue
             documents.append(
                 Document(
@@ -76,7 +84,7 @@ def _collect_documents(gold_ids: set[str], n_distractors: int) -> list[Document]
                 found_gold_ids.add(article['wikipedia_id'])
             else:
                 distractor_count += 1
-            if found_gold_ids == gold_ids and distractor_count >= n_distractors:
+            if (found_gold_ids == gold_ids and distractor_count >= n_distractors) or scanned >= _MAX_SCANNED_ENTRIES:
                 break
     finally:
         response.close()

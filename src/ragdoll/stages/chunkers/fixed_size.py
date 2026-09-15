@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from ragdoll.core.registry import chunkers
 from ragdoll.core.schema import Chunk, Document
@@ -11,8 +11,8 @@ from ragdoll.core.schema import Chunk, Document
 class FixedSizeChunkerConfig(BaseModel):
     """Config for FixedSizeChunker."""
 
-    chunk_size: int = 500
-    overlap: int = 50
+    chunk_size: int = Field(default=500, gt=0)
+    overlap: int = Field(default=50, ge=0)
 
     @model_validator(mode='after')
     def _check_overlap(self) -> FixedSizeChunkerConfig:

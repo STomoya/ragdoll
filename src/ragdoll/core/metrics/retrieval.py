@@ -36,8 +36,8 @@ def compute_retrieval_metrics(
     relevant_doc_ids = {context.doc_id for context in top_k if context.doc_id in gold_ids}
     recall_at_k = len(relevant_doc_ids) / len(gold_ids)
 
-    denominator = min(k, len(retrieved_contexts))
-    precision_at_k = len(relevant_doc_ids) / denominator if denominator > 0 else 0.0
+    relevant_chunks = sum(1 for context in top_k if context.doc_id in gold_ids)
+    precision_at_k = relevant_chunks / k if k > 0 else 0.0
 
     mrr = 0.0
     for rank, context in enumerate(top_k, start=1):

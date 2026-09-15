@@ -55,7 +55,7 @@ def score_faithfulness(query: Query, response: RAGResponse, judge_model: str = D
         _JUDGE_MAX_TOKENS,
         _JUDGE_TEMPERATURE,
     )
-    match = _SCORE_PATTERN.search(judged_text)
-    if match is None:
+    matches = _SCORE_PATTERN.findall(judged_text)
+    if not matches:
         return 0.0
-    return min(max(float(match.group(1)), 0.0), 1.0)
+    return min(max(float(matches[-1]), 0.0), 1.0)

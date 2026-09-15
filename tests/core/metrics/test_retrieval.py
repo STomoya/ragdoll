@@ -62,7 +62,7 @@ def test_duplicate_doc_ids_across_chunks_count_once_for_recall() -> None:
     result = compute_retrieval_metrics(contexts, gold_doc_ids=['gold1', 'gold2'])
 
     assert result.recall_at_k == pytest.approx(0.5)  # only gold1 found, gold2 never appears
-    assert result.precision_at_k == pytest.approx(0.5)  # 1 distinct relevant doc / 2 retrieved
+    assert result.precision_at_k == pytest.approx(1.0)  # both retrieved chunks are from a gold doc
     assert result.mrr == pytest.approx(1.0)  # first context (rank 1) is gold1, which is relevant
     ndcg_expected = 0.6131  # dcg=1.0; idcg≈1.6309; 1.0/1.6309≈0.6131
     assert result.ndcg_at_k == pytest.approx(ndcg_expected, abs=1e-4)

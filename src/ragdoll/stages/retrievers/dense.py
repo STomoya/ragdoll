@@ -26,7 +26,7 @@ class DenseRetrieverConfig(BaseModel):
 
 @dataclass
 class DenseIndex:
-    """Opaque IndexHandle for DenseRetriever: chunks plus their embeddings, in matching order."""
+    """Opaque IndexHandle for DenseRetriever: chunks plus their L2-normalized embeddings, in matching order."""
 
     chunks: list[Chunk]
     embeddings: np.ndarray
@@ -46,20 +46,23 @@ class DenseRetriever:
             self._config.embedding_model,
             device=self._config.device,
         )
-        return DenseIndex(chunks=chunks, embeddings=np.asarray(embeddings))
+        embeddings = np.asarray(embeddings)
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        return DenseIndex(chunks=chunks, embeddings=embeddings / (norms + 1e-10))
 
     def retrieve(self, transformed_query: TransformedQuery, index_handle: IndexHandle) -> list[RetrievedContext]:
         """Retrieve chunks by cosine similarity of their embeddings to the query embedding."""
-        assert isinstance(index_handle, DenseIndex)
+        if not isinstance(index_handle, DenseIndex):
+            msg = f'Expected DenseIndex, got {type(index_handle).__name__}'
+            raise TypeError(msg)
         query_text = ' '.join(transformed_query.search_texts)
         query_embedding, _latency_ms = embed_texts(
             [query_text], self._config.embedding_model, device=self._config.device
         )
         query_vector = np.asarray(query_embedding)[0]
-
-        chunk_norms = np.linalg.norm(index_handle.embeddings, axis=1)
         query_norm = np.linalg.norm(query_vector)
-        scores = index_handle.embeddings @ query_vector / (chunk_norms * query_norm + 1e-10)
+
+        scores = index_handle.embeddings @ (query_vector / (query_norm + 1e-10))
 
         ranked_indices = np.argsort(-scores)[: self._config.top_k]
         return [

@@ -11,13 +11,13 @@ from sentence_transformers import SentenceTransformer
 
 
 @cache
-def _load_embedding_model(model_name: str) -> SentenceTransformer:
-    return SentenceTransformer(model_name)
+def _load_embedding_model(model_name: str, device: str) -> SentenceTransformer:
+    return SentenceTransformer(model_name, device=device)
 
 
-def embed_texts(texts: list[str], model_name: str) -> tuple[Any, float]:
+def embed_texts(texts: list[str], model_name: str, device: str = 'cpu') -> tuple[Any, float]:
     """Embed texts with a local sentence-transformers model; returns (embeddings, latency_ms)."""
-    model = _load_embedding_model(model_name)
+    model = _load_embedding_model(model_name, device)
     start = time.perf_counter()
     embeddings = model.encode(texts)
     latency_ms = (time.perf_counter() - start) * 1000

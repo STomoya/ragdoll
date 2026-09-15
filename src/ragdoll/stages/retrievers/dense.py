@@ -21,6 +21,7 @@ class DenseRetrieverConfig(BaseModel):
 
     embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2'
     top_k: int = 5
+    device: str = 'cpu'
 
 
 @dataclass
@@ -40,14 +41,20 @@ class DenseRetriever:
 
     def build_index(self, chunks: list[Chunk]) -> IndexHandle:
         """Build a dense index from chunks by embedding their text."""
-        embeddings, _latency_ms = embed_texts([chunk.text for chunk in chunks], self._config.embedding_model)
+        embeddings, _latency_ms = embed_texts(
+            [chunk.text for chunk in chunks],
+            self._config.embedding_model,
+            device=self._config.device,
+        )
         return DenseIndex(chunks=chunks, embeddings=np.asarray(embeddings))
 
     def retrieve(self, transformed_query: TransformedQuery, index_handle: IndexHandle) -> list[RetrievedContext]:
         """Retrieve chunks by cosine similarity of their embeddings to the query embedding."""
         assert isinstance(index_handle, DenseIndex)
         query_text = ' '.join(transformed_query.search_texts)
-        query_embedding, _latency_ms = embed_texts([query_text], self._config.embedding_model)
+        query_embedding, _latency_ms = embed_texts(
+            [query_text], self._config.embedding_model, device=self._config.device
+        )
         query_vector = np.asarray(query_embedding)[0]
 
         chunk_norms = np.linalg.norm(index_handle.embeddings, axis=1)

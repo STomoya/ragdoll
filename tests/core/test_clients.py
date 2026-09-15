@@ -29,7 +29,18 @@ def test_embed_texts_caches_model_per_name(mocker: MockerFixture) -> None:
     clients.embed_texts(['a'], 'same-model')
     clients.embed_texts(['b'], 'same-model')
 
-    mock_cls.assert_called_once_with('same-model')
+    mock_cls.assert_called_once_with('same-model', device='cpu')
+
+
+def test_embed_texts_reloads_model_for_a_different_device(mocker: MockerFixture) -> None:
+    mock_cls = mocker.patch.object(clients, 'SentenceTransformer')
+    mock_cls.return_value.encode.return_value = []
+
+    clients.embed_texts(['a'], 'same-model', device='cpu')
+    clients.embed_texts(['b'], 'same-model', device='cuda:0')
+
+    mock_cls.assert_any_call('same-model', device='cpu')
+    mock_cls.assert_any_call('same-model', device='cuda:0')
 
 
 def test_generate_chat_returns_answer_latency_and_token_usage(mocker: MockerFixture) -> None:

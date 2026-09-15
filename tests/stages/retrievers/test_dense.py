@@ -26,7 +26,11 @@ def test_build_index_embeds_chunk_texts(mocker: MockerFixture) -> None:
 
     index_handle = retriever.build_index(chunks)
 
-    mock_embed.assert_called_once_with(['alpha', 'beta'], DenseRetrieverConfig().embedding_model)
+    mock_embed.assert_called_once_with(
+        ['alpha', 'beta'],
+        DenseRetrieverConfig().embedding_model,
+        device=DenseRetrieverConfig().device,
+    )
     assert isinstance(index_handle, DenseIndex)
     assert index_handle.chunks == chunks
 

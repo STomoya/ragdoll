@@ -28,6 +28,30 @@ response = run_pipeline(combination, index_handle, query)
 print(response.answer)
 ```
 
+## Running a benchmark
+
+Benchmark adapters produce `Document`/`Query` pairs against which you can run
+any stage combination:
+
+```python
+import ragdoll.stages  # registers every stage implementation
+
+from ragdoll.benchmarks.natural_questions import load_natural_questions
+from ragdoll.core.pipeline import StageCombination
+from ragdoll.core.runner import build_index, run_combination
+
+documents, queries = load_natural_questions(n_queries=5)
+index_handle = build_index(chunker="fixed_size", retriever="dense", documents=documents)
+
+combination = StageCombination(chunker="fixed_size", retriever="dense", generator="single_shot")
+responses = run_combination(combination, index_handle, queries)
+
+for response in responses:
+    print(response.query_id, response.answer)
+```
+
+Requires an `OPENAI_API_KEY` for the generator's LLM calls.
+
 ## Development
 
 ```bash

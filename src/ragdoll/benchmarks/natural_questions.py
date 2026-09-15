@@ -16,7 +16,7 @@ import requests
 from ragdoll.core.schema import Document, Query
 
 _TASKS_REPO = 'facebook/kilt_tasks'
-_KNOWLEDGE_SOURCE_URL = 'http://dl.fbaipublicfiles.com/KILT/kilt_knowledgesource.json'
+_KNOWLEDGE_SOURCE_URL = 'https://dl.fbaipublicfiles.com/KILT/kilt_knowledgesource.json'
 
 
 def load_natural_questions(

@@ -52,6 +52,19 @@ for response in responses:
 
 Requires an `OPENAI_API_KEY` for the generator's LLM calls.
 
+## Evaluating results
+
+`evaluate_combination` scores a combination's responses against the
+queries' gold fields (retrieval quality, answer correctness, efficiency,
+and LLM-judged faithfulness), continuing from the benchmark example above:
+
+```python
+from ragdoll.core.metrics.evaluate import evaluate_combination
+
+result = evaluate_combination(combination, responses, queries)
+print(result.retrieval.recall_at_k, result.correctness.f1)
+```
+
 ## Development
 
 ```bash

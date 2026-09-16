@@ -213,7 +213,30 @@ def test_run_experiment_applies_per_stage_configs(mocker: MockerFixture, tmp_pat
     result_file = next(run_dir.glob('000_*.json'))
     combination = json.loads(result_file.read_text())['combination']
     assert combination['chunker_config'] == {'chunk_size': 200, 'overlap': 20}
-    assert combination['generator_config'] == {'model_name': 'custom-model'}
+    # generator_config is fully resolved (defaults included), not just the caller's partial input.
+    assert combination['generator_config'] == {'model_name': 'custom-model', 'max_tokens': 512, 'temperature': 0.0}
+
+
+@pytest.mark.usefixtures('_mocked_clients')
+def test_run_experiment_records_openai_base_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv('OPENAI_BASE_URL', 'http://localhost:8000/v1')
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+
+    run_experiment(
+        documents,
+        queries,
+        chunkers=['fixed_size'],
+        query_transforms=['identity'],
+        retrievers=['dense'],
+        rerankers=['identity'],
+        generators=['single_shot'],
+        reports_dir=tmp_path,
+    )
+
+    run_dir = next(tmp_path.iterdir())
+    metadata = json.loads((run_dir / 'run_metadata.json').read_text())
+    assert metadata['openai_base_url'] == 'http://localhost:8000/v1'
 
 
 @pytest.mark.usefixtures('_mocked_clients')

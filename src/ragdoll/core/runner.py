@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime
 from itertools import product
@@ -15,7 +16,15 @@ from ragdoll import LOG_FORMAT
 from ragdoll.core.metrics.evaluate import EvaluationResult, evaluate_combination
 from ragdoll.core.metrics.faithfulness import DEFAULT_JUDGE_MODEL
 from ragdoll.core.pipeline import StageCombination, build_pipeline_stages, run_pipeline_stages
-from ragdoll.core.registry import chunkers, incompatibility_reason, is_compatible, retrievers
+from ragdoll.core.registry import (
+    chunkers,
+    generators,
+    incompatibility_reason,
+    is_compatible,
+    query_transforms,
+    rerankers,
+    retrievers,
+)
 
 if TYPE_CHECKING:
     from ragdoll.core.schema import Document, IndexHandle, Query, RAGResponse
@@ -96,16 +105,46 @@ def _apply_configs(
     reranker_configs: dict[str, dict[str, Any]] | None,
     generator_configs: dict[str, dict[str, Any]] | None,
 ) -> StageCombination:
-    """Attach each stage's declared config (looked up by that stage's name) to a grid-expanded combination."""
+    """Resolve each stage's config through its registered Pydantic model and attach it to a grid-expanded
+    combination.
+
+    Stores the fully-resolved config (defaults included), not the caller's
+    raw input dict, so what gets written to disk is the config actually used
+    rather than just whatever subset of fields the caller happened to pass.
+    """
     return combination.model_copy(
         update={
-            'chunker_config': (chunker_configs or {}).get(combination.chunker, {}),
-            'query_transform_config': (query_transform_configs or {}).get(combination.query_transform, {}),
-            'retriever_config': (retriever_configs or {}).get(combination.retriever, {}),
-            'reranker_config': (reranker_configs or {}).get(combination.reranker, {}),
-            'generator_config': (generator_configs or {}).get(combination.generator, {}),
+            'chunker_config': chunkers.get(combination.chunker)
+            .config_model(**(chunker_configs or {}).get(combination.chunker, {}))
+            .model_dump(),
+            'query_transform_config': query_transforms.get(combination.query_transform)
+            .config_model(**(query_transform_configs or {}).get(combination.query_transform, {}))
+            .model_dump(),
+            'retriever_config': retrievers.get(combination.retriever)
+            .config_model(**(retriever_configs or {}).get(combination.retriever, {}))
+            .model_dump(),
+            'reranker_config': rerankers.get(combination.reranker)
+            .config_model(**(reranker_configs or {}).get(combination.reranker, {}))
+            .model_dump(),
+            'generator_config': generators.get(combination.generator)
+            .config_model(**(generator_configs or {}).get(combination.generator, {}))
+            .model_dump(),
         }
     )
+
+
+def _record_environment(run_dir: Path) -> None:
+    """Save env that determines which model actually answers but isn't captured in any config object.
+
+    Some local OpenAI-compatible model servers ignore the request's `model`
+    field entirely and just serve whatever they have preloaded, so
+    generator_config.model_name can be misleading — OPENAI_BASE_URL (which
+    the openai client reads directly, see core/clients.py) is what actually
+    determined which backend answered.
+    """
+    base_url = os.environ.get('OPENAI_BASE_URL')
+    logger.info('OPENAI_BASE_URL=%s', base_url)
+    (run_dir / 'run_metadata.json').write_text(json.dumps({'openai_base_url': base_url}, indent=2))
 
 
 def _index_key(combination: StageCombination) -> tuple[str, str, str, str]:
@@ -214,6 +253,8 @@ def run_experiment(
     file_handler = _attach_run_file_handler(run_dir)
 
     try:
+        _record_environment(run_dir)
+
         combinations = [
             _apply_configs(
                 c,

@@ -6,6 +6,8 @@ import csv
 import json
 import logging
 import os
+import tempfile
+import threading
 import time
 from datetime import UTC, datetime
 from itertools import product
@@ -91,9 +93,16 @@ def run_combination(
 
 
 def _attach_run_file_handler(run_dir: Path) -> logging.Handler:
-    """Add a file handler scoped to this run, on top of the package's pre-configured console handler."""
+    """Add a file handler scoped to this run, on top of the package's pre-configured console handler.
+
+    Filtered to this thread so concurrent run_experiment calls (e.g. a sweep
+    script overlapping runs across threads) don't bleed log records into
+    each other's run.log.
+    """
     handler = logging.FileHandler(run_dir / 'run.log')
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    thread_id = threading.get_ident()
+    handler.addFilter(lambda record: record.thread == thread_id)
     logging.getLogger('ragdoll').addHandler(handler)
     return handler
 
@@ -126,25 +135,19 @@ def _apply_configs(
     raw input, so what gets written to disk is the config actually used
     rather than just whatever subset of fields the caller happened to pass.
     """
-    return combination.model_copy(
-        update={
-            'chunker_config': chunkers.get(combination.chunker)
-            .config_model(**_config_kwargs((chunker_configs or {}).get(combination.chunker)))
-            .model_dump(),
-            'query_transform_config': query_transforms.get(combination.query_transform)
-            .config_model(**_config_kwargs((query_transform_configs or {}).get(combination.query_transform)))
-            .model_dump(),
-            'retriever_config': retrievers.get(combination.retriever)
-            .config_model(**_config_kwargs((retriever_configs or {}).get(combination.retriever)))
-            .model_dump(),
-            'reranker_config': rerankers.get(combination.reranker)
-            .config_model(**_config_kwargs((reranker_configs or {}).get(combination.reranker)))
-            .model_dump(),
-            'generator_config': generators.get(combination.generator)
-            .config_model(**_config_kwargs((generator_configs or {}).get(combination.generator)))
-            .model_dump(),
-        }
+    slots = (
+        ('chunker', chunkers, chunker_configs),
+        ('query_transform', query_transforms, query_transform_configs),
+        ('retriever', retrievers, retriever_configs),
+        ('reranker', rerankers, reranker_configs),
+        ('generator', generators, generator_configs),
     )
+    update = {}
+    for attr, registry, configs in slots:
+        name = getattr(combination, attr)
+        kwargs = _config_kwargs((configs or {}).get(name))
+        update[f'{attr}_config'] = registry.get(name).config_model(**kwargs).model_dump()
+    return combination.model_copy(update=update)
 
 
 def _record_environment(run_dir: Path) -> None:
@@ -264,8 +267,9 @@ def run_experiment(
     — applied to every combination that uses that name. Omitted names get
     that stage's default config.
     """
-    run_dir = Path(reports_dir) / datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')
-    run_dir.mkdir(parents=True)
+    reports_path = Path(reports_dir)
+    reports_path.mkdir(parents=True, exist_ok=True)
+    run_dir = Path(tempfile.mkdtemp(prefix=datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f_'), dir=reports_path))
     file_handler = _attach_run_file_handler(run_dir)
 
     try:

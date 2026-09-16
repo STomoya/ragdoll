@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import threading
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -295,3 +296,38 @@ def test_run_experiment_uses_a_fresh_folder_per_call(tmp_path: Path) -> None:
 
     n_runs = 2
     assert len(list(tmp_path.iterdir())) == n_runs
+
+
+@pytest.mark.usefixtures('_mocked_clients')
+def test_run_experiment_concurrent_calls_dont_cross_contaminate_logs(tmp_path: Path) -> None:
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+    barrier = threading.Barrier(2)
+
+    def _run() -> None:
+        barrier.wait()
+        run_experiment(
+            documents,
+            queries,
+            chunkers=['fixed_size'],
+            query_transforms=['identity'],
+            retrievers=['dense'],
+            rerankers=['identity'],
+            generators=['single_shot'],
+            reports_dir=tmp_path,
+        )
+
+    threads = [threading.Thread(target=_run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    run_dirs = list(tmp_path.iterdir())
+    n_runs = 2
+    assert len(run_dirs) == n_runs  # no FileExistsError collision, each call got its own folder
+
+    for run_dir in run_dirs:
+        log_lines = (run_dir / 'run.log').read_text().splitlines()
+        # each run's log holds exactly its own "run complete" line, not the other thread's too.
+        assert sum('run complete' in line for line in log_lines) == 1

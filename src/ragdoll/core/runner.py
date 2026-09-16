@@ -117,10 +117,22 @@ def _index_key(combination: StageCombination) -> tuple[str, str, str, str]:
     )
 
 
+def _combination_slug(index: int, combination: StageCombination) -> str:
+    c = combination
+    return f'{index:03d}_{c.chunker}-{c.query_transform}-{c.retriever}-{c.reranker}-{c.generator}'
+
+
 def _write_result(run_dir: Path, index: int, result: EvaluationResult) -> None:
-    c = result.combination
-    name = f'{index:03d}_{c.chunker}-{c.query_transform}-{c.retriever}-{c.reranker}-{c.generator}.json'
-    (run_dir / name).write_text(result.model_dump_json(indent=2))
+    name = _combination_slug(index, result.combination)
+    (run_dir / f'{name}.json').write_text(result.model_dump_json(indent=2))
+
+
+def _write_responses(run_dir: Path, index: int, combination: StageCombination, responses: list[RAGResponse]) -> None:
+    """Write every query's raw RAGResponse (answer, retrieved_contexts, ...) for one combination, one per line."""
+    name = _combination_slug(index, combination)
+    with (run_dir / f'{name}_responses.jsonl').open('w') as f:
+        for response in responses:
+            f.write(response.model_dump_json() + '\n')
 
 
 def _write_summary(run_dir: Path, results: list[EvaluationResult]) -> None:
@@ -236,6 +248,7 @@ def run_experiment(
 
             logger.info('running combination %d/%d: %s', i + 1, len(combinations), combination.model_dump_json())
             responses = run_combination(combination, index_cache[key], queries)
+            _write_responses(run_dir, i, combination, responses)
 
             result = evaluate_combination(combination, responses, queries, judge_model=judge_model)
             logger.info(

@@ -171,6 +171,13 @@ def test_run_experiment_writes_run_folder_with_log_and_results(tmp_path: Path) -
     assert len(result_files) == 1
     assert json.loads(result_files[0].read_text())['n_queries'] == 1
 
+    response_files = list(run_dir.glob('000_*_responses.jsonl'))
+    assert len(response_files) == 1
+    responses = [json.loads(line) for line in response_files[0].read_text().splitlines()]
+    assert [r['query_id'] for r in responses] == ['q1']
+    assert responses[0]['answer'] == 'an answer'
+    assert [c['chunk_id'] for c in responses[0]['retrieved_contexts']] == ['d1::0']
+
     with (run_dir / 'summary.csv').open() as f:
         rows = list(csv.reader(f))
     header_row_count = 1

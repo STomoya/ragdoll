@@ -12,6 +12,8 @@ from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 from ragdoll import LOG_FORMAT
 from ragdoll.core.metrics.evaluate import EvaluationResult, evaluate_combination
 from ragdoll.core.metrics.faithfulness import DEFAULT_JUDGE_MODEL
@@ -96,38 +98,50 @@ def _attach_run_file_handler(run_dir: Path) -> logging.Handler:
     return handler
 
 
+StageConfig = dict[str, Any] | BaseModel
+
+
+def _config_kwargs(value: StageConfig | None) -> dict[str, Any]:
+    """Normalize a caller-supplied config (a plain dict, an already-built config object, or None)."""
+    if value is None:
+        return {}
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    return value
+
+
 def _apply_configs(
     combination: StageCombination,
     *,
-    chunker_configs: dict[str, dict[str, Any]] | None,
-    query_transform_configs: dict[str, dict[str, Any]] | None,
-    retriever_configs: dict[str, dict[str, Any]] | None,
-    reranker_configs: dict[str, dict[str, Any]] | None,
-    generator_configs: dict[str, dict[str, Any]] | None,
+    chunker_configs: dict[str, StageConfig] | None,
+    query_transform_configs: dict[str, StageConfig] | None,
+    retriever_configs: dict[str, StageConfig] | None,
+    reranker_configs: dict[str, StageConfig] | None,
+    generator_configs: dict[str, StageConfig] | None,
 ) -> StageCombination:
     """Resolve each stage's config through its registered Pydantic model and attach it to a grid-expanded
     combination.
 
     Stores the fully-resolved config (defaults included), not the caller's
-    raw input dict, so what gets written to disk is the config actually used
+    raw input, so what gets written to disk is the config actually used
     rather than just whatever subset of fields the caller happened to pass.
     """
     return combination.model_copy(
         update={
             'chunker_config': chunkers.get(combination.chunker)
-            .config_model(**(chunker_configs or {}).get(combination.chunker, {}))
+            .config_model(**_config_kwargs((chunker_configs or {}).get(combination.chunker)))
             .model_dump(),
             'query_transform_config': query_transforms.get(combination.query_transform)
-            .config_model(**(query_transform_configs or {}).get(combination.query_transform, {}))
+            .config_model(**_config_kwargs((query_transform_configs or {}).get(combination.query_transform)))
             .model_dump(),
             'retriever_config': retrievers.get(combination.retriever)
-            .config_model(**(retriever_configs or {}).get(combination.retriever, {}))
+            .config_model(**_config_kwargs((retriever_configs or {}).get(combination.retriever)))
             .model_dump(),
             'reranker_config': rerankers.get(combination.reranker)
-            .config_model(**(reranker_configs or {}).get(combination.reranker, {}))
+            .config_model(**_config_kwargs((reranker_configs or {}).get(combination.reranker)))
             .model_dump(),
             'generator_config': generators.get(combination.generator)
-            .config_model(**(generator_configs or {}).get(combination.generator, {}))
+            .config_model(**_config_kwargs((generator_configs or {}).get(combination.generator)))
             .model_dump(),
         }
     )
@@ -228,11 +242,11 @@ def run_experiment(
     retrievers: list[str],
     rerankers: list[str],
     generators: list[str],
-    chunker_configs: dict[str, dict[str, Any]] | None = None,
-    query_transform_configs: dict[str, dict[str, Any]] | None = None,
-    retriever_configs: dict[str, dict[str, Any]] | None = None,
-    reranker_configs: dict[str, dict[str, Any]] | None = None,
-    generator_configs: dict[str, dict[str, Any]] | None = None,
+    chunker_configs: dict[str, StageConfig] | None = None,
+    query_transform_configs: dict[str, StageConfig] | None = None,
+    retriever_configs: dict[str, StageConfig] | None = None,
+    reranker_configs: dict[str, StageConfig] | None = None,
+    generator_configs: dict[str, StageConfig] | None = None,
     reports_dir: Path | str = 'reports',
     judge_model: str = DEFAULT_JUDGE_MODEL,
 ) -> list[EvaluationResult]:
@@ -243,10 +257,12 @@ def run_experiment(
     their configs) pairs are indexed once and reused across every combination
     that shares them, per AGENTS.md.
 
-    A `*_configs` argument maps a stage name to the config dict for that name
-    (e.g. `chunker_configs={'fixed_size': {'chunk_size': 500}}`), applied to
-    every combination that uses that name. Omitted names get that stage's
-    default config.
+    A `*_configs` argument maps a stage name to the config for that name —
+    either a plain dict (e.g. `chunker_configs={'fixed_size': {'chunk_size': 500}}`)
+    or an already-built instance of that stage's registered config model
+    (e.g. `generator_configs={'single_shot': SingleShotGeneratorConfig(model_name='gpt-4o')}`)
+    — applied to every combination that uses that name. Omitted names get
+    that stage's default config.
     """
     run_dir = Path(reports_dir) / datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')
     run_dir.mkdir(parents=True)

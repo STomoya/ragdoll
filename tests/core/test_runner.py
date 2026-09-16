@@ -22,6 +22,8 @@ from ragdoll.core import registry
 from ragdoll.core.pipeline import StageCombination
 from ragdoll.core.runner import IncompatibleStagesError, build_index, expand_grid, run_combination, run_experiment
 from ragdoll.core.schema import Document, Query
+from ragdoll.stages.chunkers.fixed_size import FixedSizeChunkerConfig
+from ragdoll.stages.generators.single_shot import SingleShotGeneratorConfig
 
 
 @pytest.fixture
@@ -214,6 +216,38 @@ def test_run_experiment_applies_per_stage_configs(mocker: MockerFixture, tmp_pat
     combination = json.loads(result_file.read_text())['combination']
     assert combination['chunker_config'] == {'chunk_size': 200, 'overlap': 20}
     # generator_config is fully resolved (defaults included), not just the caller's partial input.
+    assert combination['generator_config'] == {'model_name': 'custom-model', 'max_tokens': 512, 'temperature': 0.0}
+
+
+def test_run_experiment_accepts_config_objects_as_well_as_dicts(mocker: MockerFixture, tmp_path: Path) -> None:
+    mocker.patch('ragdoll.stages.retrievers.dense.embed_texts', return_value=([[0.1, 0.2]], 1.0))
+    mock_generate = mocker.patch(
+        'ragdoll.stages.generators.single_shot.generate_chat',
+        return_value=('an answer', 3.0, {'prompt_tokens': 1, 'completion_tokens': 1}),
+    )
+    mocker.patch('ragdoll.core.metrics.faithfulness.generate_chat', return_value=('0.5', 2.0, {}))
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+
+    run_experiment(
+        documents,
+        queries,
+        chunkers=['fixed_size'],
+        query_transforms=['identity'],
+        retrievers=['dense'],
+        rerankers=['identity'],
+        generators=['single_shot'],
+        chunker_configs={'fixed_size': FixedSizeChunkerConfig(chunk_size=200, overlap=20)},
+        generator_configs={'single_shot': SingleShotGeneratorConfig(model_name='custom-model')},
+        reports_dir=tmp_path,
+    )
+
+    assert mock_generate.call_args.args[1] == 'custom-model'
+
+    run_dir = next(tmp_path.iterdir())
+    result_file = next(run_dir.glob('000_*.json'))
+    combination = json.loads(result_file.read_text())['combination']
+    assert combination['chunker_config'] == {'chunk_size': 200, 'overlap': 20}
     assert combination['generator_config'] == {'model_name': 'custom-model', 'max_tokens': 512, 'temperature': 0.0}
 
 

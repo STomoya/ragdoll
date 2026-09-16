@@ -135,6 +135,17 @@ KILT-style provenance).
 - **MKQA** (optional add-on) — open-domain QA, 26 languages incl. Japanese,
   NQ-derived corpus, for Japanese answer-correctness/faithfulness.
 
+### Development dataset (not a benchmark)
+
+- **`rag-datasets/rag-mini-wikipedia`** (Hugging Face) — small, self-contained
+  corpus+QA pairs (`text-corpus` passages / `question-answer` test split,
+  <1K rows total), single `datasets.load_dataset()` call, no separate
+  multi-GB knowledge source to fetch. Use it to smoke-test that a pipeline
+  combination runs end to end (real embeddings/LLM calls, tiny real data)
+  during development. It is not one of the benchmarks above: don't report
+  eval numbers against it, don't add a `benchmarks/` adapter for it, and
+  don't use it to compare methods.
+
 ## Repo layout
 
 ```

@@ -10,3 +10,8 @@ wheels/
 .venv
 
 .coverage
+.reports/
+.env
+
+# Subagent-driven-development scratch workspace
+.superpowers/

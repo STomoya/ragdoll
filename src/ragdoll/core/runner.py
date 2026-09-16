@@ -87,6 +87,27 @@ def _attach_run_file_handler(run_dir: Path) -> logging.Handler:
     return handler
 
 
+def _apply_configs(
+    combination: StageCombination,
+    *,
+    chunker_configs: dict[str, dict[str, Any]] | None,
+    query_transform_configs: dict[str, dict[str, Any]] | None,
+    retriever_configs: dict[str, dict[str, Any]] | None,
+    reranker_configs: dict[str, dict[str, Any]] | None,
+    generator_configs: dict[str, dict[str, Any]] | None,
+) -> StageCombination:
+    """Attach each stage's declared config (looked up by that stage's name) to a grid-expanded combination."""
+    return combination.model_copy(
+        update={
+            'chunker_config': (chunker_configs or {}).get(combination.chunker, {}),
+            'query_transform_config': (query_transform_configs or {}).get(combination.query_transform, {}),
+            'retriever_config': (retriever_configs or {}).get(combination.retriever, {}),
+            'reranker_config': (reranker_configs or {}).get(combination.reranker, {}),
+            'generator_config': (generator_configs or {}).get(combination.generator, {}),
+        }
+    )
+
+
 def _index_key(combination: StageCombination) -> tuple[str, str, str, str]:
     return (
         combination.chunker,
@@ -156,6 +177,11 @@ def run_experiment(
     retrievers: list[str],
     rerankers: list[str],
     generators: list[str],
+    chunker_configs: dict[str, dict[str, Any]] | None = None,
+    query_transform_configs: dict[str, dict[str, Any]] | None = None,
+    retriever_configs: dict[str, dict[str, Any]] | None = None,
+    reranker_configs: dict[str, dict[str, Any]] | None = None,
+    generator_configs: dict[str, dict[str, Any]] | None = None,
     reports_dir: Path | str = 'reports',
     judge_model: str = DEFAULT_JUDGE_MODEL,
 ) -> list[EvaluationResult]:
@@ -165,13 +191,28 @@ def run_experiment(
     different runs never overwrite each other. Distinct (chunker, retriever,
     their configs) pairs are indexed once and reused across every combination
     that shares them, per AGENTS.md.
+
+    A `*_configs` argument maps a stage name to the config dict for that name
+    (e.g. `chunker_configs={'fixed_size': {'chunk_size': 500}}`), applied to
+    every combination that uses that name. Omitted names get that stage's
+    default config.
     """
     run_dir = Path(reports_dir) / datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')
     run_dir.mkdir(parents=True)
     file_handler = _attach_run_file_handler(run_dir)
 
     try:
-        combinations = expand_grid(chunkers, query_transforms, retrievers, rerankers, generators)
+        combinations = [
+            _apply_configs(
+                c,
+                chunker_configs=chunker_configs,
+                query_transform_configs=query_transform_configs,
+                retriever_configs=retriever_configs,
+                reranker_configs=reranker_configs,
+                generator_configs=generator_configs,
+            )
+            for c in expand_grid(chunkers, query_transforms, retrievers, rerankers, generators)
+        ]
         total = len(chunkers) * len(query_transforms) * len(retrievers) * len(rerankers) * len(generators)
         skipped = total - len(combinations)
         logger.info('expanded grid: %d combinations (%d skipped as incompatible)', len(combinations), skipped)

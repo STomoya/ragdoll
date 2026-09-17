@@ -99,7 +99,7 @@ def _attach_run_file_handler(run_dir: Path) -> logging.Handler:
     script overlapping runs across threads) don't bleed log records into
     each other's run.log.
     """
-    handler = logging.FileHandler(run_dir / 'run.log')
+    handler = logging.FileHandler(run_dir / 'run.log', encoding='utf-8')
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     thread_id = threading.get_ident()
     handler.addFilter(lambda record: record.thread == thread_id)
@@ -146,7 +146,7 @@ def _apply_configs(
     for attr, registry, configs in slots:
         name = getattr(combination, attr)
         kwargs = _config_kwargs((configs or {}).get(name))
-        update[f'{attr}_config'] = registry.get(name).config_model(**kwargs).model_dump()
+        update[f'{attr}_config'] = registry.get(name).config_model(**kwargs).model_dump(mode='json')
     return combination.model_copy(update=update)
 
 
@@ -161,7 +161,7 @@ def _record_environment(run_dir: Path) -> None:
     """
     base_url = os.environ.get('OPENAI_BASE_URL')
     logger.info('OPENAI_BASE_URL=%s', base_url)
-    (run_dir / 'run_metadata.json').write_text(json.dumps({'openai_base_url': base_url}, indent=2))
+    (run_dir / 'run_metadata.json').write_text(json.dumps({'openai_base_url': base_url}, indent=2), encoding='utf-8')
 
 
 def _index_key(combination: StageCombination) -> tuple[str, str, str, str]:
@@ -180,19 +180,19 @@ def _combination_slug(index: int, combination: StageCombination) -> str:
 
 def _write_result(run_dir: Path, index: int, result: EvaluationResult) -> None:
     name = _combination_slug(index, result.combination)
-    (run_dir / f'{name}.json').write_text(result.model_dump_json(indent=2))
+    (run_dir / f'{name}.json').write_text(result.model_dump_json(indent=2), encoding='utf-8')
 
 
 def _write_responses(run_dir: Path, index: int, combination: StageCombination, responses: list[RAGResponse]) -> None:
     """Write every query's raw RAGResponse (answer, retrieved_contexts, ...) for one combination, one per line."""
     name = _combination_slug(index, combination)
-    with (run_dir / f'{name}_responses.jsonl').open('w') as f:
+    with (run_dir / f'{name}_responses.jsonl').open('w', encoding='utf-8') as f:
         for response in responses:
             f.write(response.model_dump_json() + '\n')
 
 
 def _write_summary(run_dir: Path, results: list[EvaluationResult]) -> None:
-    with (run_dir / 'summary.csv').open('w', newline='') as f:
+    with (run_dir / 'summary.csv').open('w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(
             [

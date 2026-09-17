@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from functools import cache
 from typing import Any, cast
 
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
+
+logger = logging.getLogger(__name__)
 
 
 @cache
@@ -21,6 +24,7 @@ def embed_texts(texts: list[str], model_name: str, device: str = 'cpu') -> tuple
     start = time.perf_counter()
     embeddings = model.encode(texts)
     latency_ms = (time.perf_counter() - start) * 1000
+    logger.debug('embedded %d texts with %s in %.1fms', len(texts), model_name, latency_ms)
     return embeddings, latency_ms
 
 
@@ -50,4 +54,5 @@ def generate_chat(
         'prompt_tokens': response.usage.prompt_tokens if response.usage else 0,
         'completion_tokens': response.usage.completion_tokens if response.usage else 0,
     }
+    logger.debug('generated chat with %s in %.1fms (tokens=%s)', model_name, latency_ms, token_usage)
     return content or '', latency_ms, token_usage

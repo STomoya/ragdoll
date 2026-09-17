@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import csv
+import json
+import threading
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     from pytest_mock import MockerFixture
 
@@ -17,8 +21,10 @@ import ragdoll.core.runner
 import ragdoll.stages
 from ragdoll.core import registry
 from ragdoll.core.pipeline import StageCombination
-from ragdoll.core.runner import IncompatibleStagesError, build_index, expand_grid, run_combination
+from ragdoll.core.runner import IncompatibleStagesError, build_index, expand_grid, run_combination, run_experiment
 from ragdoll.core.schema import Document, Query
+from ragdoll.stages.chunkers.fixed_size import FixedSizeChunkerConfig
+from ragdoll.stages.generators.single_shot import SingleShotGeneratorConfig
 
 
 @pytest.fixture
@@ -129,3 +135,199 @@ def test_build_index_raises_for_incompatible_pair() -> None:
 
     with pytest.raises(IncompatibleStagesError):
         build_index('fixed_size', 'dense', documents)
+
+
+@pytest.fixture
+def _mocked_clients(mocker: MockerFixture) -> None:
+    mocker.patch('ragdoll.stages.retrievers.dense.embed_texts', return_value=([[0.1, 0.2]], 1.0))
+    mocker.patch(
+        'ragdoll.stages.generators.single_shot.generate_chat',
+        return_value=('an answer', 3.0, {'prompt_tokens': 1, 'completion_tokens': 1}),
+    )
+    mocker.patch('ragdoll.core.metrics.faithfulness.generate_chat', return_value=('0.5', 2.0, {}))
+
+
+@pytest.mark.usefixtures('_mocked_clients')
+def test_run_experiment_writes_run_folder_with_log_and_results(tmp_path: Path) -> None:
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+
+    results = run_experiment(
+        documents,
+        queries,
+        chunkers=['fixed_size'],
+        query_transforms=['identity'],
+        retrievers=['dense'],
+        rerankers=['identity'],
+        generators=['single_shot'],
+        reports_dir=tmp_path,
+    )
+
+    run_dirs = list(tmp_path.iterdir())
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+
+    assert len(results) == 1
+    assert (run_dir / 'run.log').read_text()
+
+    result_files = list(run_dir.glob('000_*.json'))
+    assert len(result_files) == 1
+    assert json.loads(result_files[0].read_text())['n_queries'] == 1
+
+    response_files = list(run_dir.glob('000_*_responses.jsonl'))
+    assert len(response_files) == 1
+    responses = [json.loads(line) for line in response_files[0].read_text().splitlines()]
+    assert [r['query_id'] for r in responses] == ['q1']
+    assert responses[0]['answer'] == 'an answer'
+    assert [c['chunk_id'] for c in responses[0]['retrieved_contexts']] == ['d1::0']
+
+    with (run_dir / 'summary.csv').open() as f:
+        rows = list(csv.reader(f))
+    header_row_count = 1
+    assert len(rows) == header_row_count + 1  # header + one combination
+
+
+def test_run_experiment_applies_per_stage_configs(mocker: MockerFixture, tmp_path: Path) -> None:
+    mocker.patch('ragdoll.stages.retrievers.dense.embed_texts', return_value=([[0.1, 0.2]], 1.0))
+    mock_generate = mocker.patch(
+        'ragdoll.stages.generators.single_shot.generate_chat',
+        return_value=('an answer', 3.0, {'prompt_tokens': 1, 'completion_tokens': 1}),
+    )
+    mocker.patch('ragdoll.core.metrics.faithfulness.generate_chat', return_value=('0.5', 2.0, {}))
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+
+    run_experiment(
+        documents,
+        queries,
+        chunkers=['fixed_size'],
+        query_transforms=['identity'],
+        retrievers=['dense'],
+        rerankers=['identity'],
+        generators=['single_shot'],
+        chunker_configs={'fixed_size': {'chunk_size': 200, 'overlap': 20}},
+        generator_configs={'single_shot': {'model_name': 'custom-model'}},
+        reports_dir=tmp_path,
+    )
+
+    assert mock_generate.call_args.args[1] == 'custom-model'
+
+    run_dir = next(tmp_path.iterdir())
+    result_file = next(run_dir.glob('000_*.json'))
+    combination = json.loads(result_file.read_text())['combination']
+    assert combination['chunker_config'] == {'chunk_size': 200, 'overlap': 20}
+    # generator_config is fully resolved (defaults included), not just the caller's partial input.
+    assert combination['generator_config'] == {'model_name': 'custom-model', 'max_tokens': 512, 'temperature': 0.0}
+
+
+def test_run_experiment_accepts_config_objects_as_well_as_dicts(mocker: MockerFixture, tmp_path: Path) -> None:
+    mocker.patch('ragdoll.stages.retrievers.dense.embed_texts', return_value=([[0.1, 0.2]], 1.0))
+    mock_generate = mocker.patch(
+        'ragdoll.stages.generators.single_shot.generate_chat',
+        return_value=('an answer', 3.0, {'prompt_tokens': 1, 'completion_tokens': 1}),
+    )
+    mocker.patch('ragdoll.core.metrics.faithfulness.generate_chat', return_value=('0.5', 2.0, {}))
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+
+    run_experiment(
+        documents,
+        queries,
+        chunkers=['fixed_size'],
+        query_transforms=['identity'],
+        retrievers=['dense'],
+        rerankers=['identity'],
+        generators=['single_shot'],
+        chunker_configs={'fixed_size': FixedSizeChunkerConfig(chunk_size=200, overlap=20)},
+        generator_configs={'single_shot': SingleShotGeneratorConfig(model_name='custom-model')},
+        reports_dir=tmp_path,
+    )
+
+    assert mock_generate.call_args.args[1] == 'custom-model'
+
+    run_dir = next(tmp_path.iterdir())
+    result_file = next(run_dir.glob('000_*.json'))
+    combination = json.loads(result_file.read_text())['combination']
+    assert combination['chunker_config'] == {'chunk_size': 200, 'overlap': 20}
+    assert combination['generator_config'] == {'model_name': 'custom-model', 'max_tokens': 512, 'temperature': 0.0}
+
+
+@pytest.mark.usefixtures('_mocked_clients')
+def test_run_experiment_records_openai_base_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv('OPENAI_BASE_URL', 'http://localhost:8000/v1')
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+
+    run_experiment(
+        documents,
+        queries,
+        chunkers=['fixed_size'],
+        query_transforms=['identity'],
+        retrievers=['dense'],
+        rerankers=['identity'],
+        generators=['single_shot'],
+        reports_dir=tmp_path,
+    )
+
+    run_dir = next(tmp_path.iterdir())
+    metadata = json.loads((run_dir / 'run_metadata.json').read_text())
+    assert metadata['openai_base_url'] == 'http://localhost:8000/v1'
+
+
+@pytest.mark.usefixtures('_mocked_clients')
+def test_run_experiment_uses_a_fresh_folder_per_call(tmp_path: Path) -> None:
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+
+    def _run() -> None:
+        run_experiment(
+            documents,
+            queries,
+            chunkers=['fixed_size'],
+            query_transforms=['identity'],
+            retrievers=['dense'],
+            rerankers=['identity'],
+            generators=['single_shot'],
+            reports_dir=tmp_path,
+        )
+
+    _run()
+    _run()
+
+    n_runs = 2
+    assert len(list(tmp_path.iterdir())) == n_runs
+
+
+@pytest.mark.usefixtures('_mocked_clients')
+def test_run_experiment_concurrent_calls_dont_cross_contaminate_logs(tmp_path: Path) -> None:
+    documents = [Document(doc_id='d1', text='short doc')]
+    queries = [Query(query_id='q1', text='q1?', lang='en')]
+    barrier = threading.Barrier(2)
+
+    def _run() -> None:
+        barrier.wait()
+        run_experiment(
+            documents,
+            queries,
+            chunkers=['fixed_size'],
+            query_transforms=['identity'],
+            retrievers=['dense'],
+            rerankers=['identity'],
+            generators=['single_shot'],
+            reports_dir=tmp_path,
+        )
+
+    threads = [threading.Thread(target=_run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    run_dirs = list(tmp_path.iterdir())
+    n_runs = 2
+    assert len(run_dirs) == n_runs  # no FileExistsError collision, each call got its own folder
+
+    for run_dir in run_dirs:
+        log_lines = (run_dir / 'run.log').read_text().splitlines()
+        # each run's log holds exactly its own "run complete" line, not the other thread's too.
+        assert sum('run complete' in line for line in log_lines) == 1

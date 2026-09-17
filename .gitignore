@@ -13,5 +13,9 @@ wheels/
 .reports/
 .env
 
+# run_experiment output — per-run folders, not committed
+reports/*
+!reports/.gitkeep
+
 # Subagent-driven-development scratch workspace
 .superpowers/

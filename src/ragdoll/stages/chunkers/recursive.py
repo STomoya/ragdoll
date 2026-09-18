@@ -7,7 +7,19 @@ from pydantic import BaseModel, Field, model_validator
 from ragdoll.core.registry import chunkers
 from ragdoll.core.schema import Chunk, Document
 
-DEFAULT_SEPARATORS = ('\n\n', '\n', '. ', ' ', '')
+DEFAULT_SEPARATORS = (
+    '\n\n',
+    '\n',
+    ' ',
+    '.',
+    ',',
+    '\u200b',  # zero-width space
+    '，',  # fullwidth comma
+    '、',  # ideographic comma
+    '．',  # fullwidth full stop
+    '。',  # ideographic full stop
+    '',
+)
 
 
 class RecursiveTextSplitterConfig(BaseModel):
@@ -66,8 +78,9 @@ def _merge_spans(spans: list[tuple[int, int]], chunk_size: int, overlap: int) ->
 
 @chunkers.register('recursive', RecursiveTextSplitterConfig)
 class RecursiveTextSplitter:
-    """Splits each document on a separator hierarchy (paragraphs, lines, sentences, words, chars), then packs
-    the resulting pieces into ~chunk_size windows with overlap.
+    """Splits each document on a separator hierarchy (paragraphs, lines, words, punctuation incl.
+    Japanese/CJK full-width and ideographic marks, chars), then packs the resulting pieces into
+    ~chunk_size windows with overlap.
     """
 
     def __init__(self, config: RecursiveTextSplitterConfig) -> None:

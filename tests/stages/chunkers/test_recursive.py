@@ -61,6 +61,26 @@ def test_short_document_produces_single_chunk():
     assert chunks[0].text == 'short text'
 
 
+def test_splits_japanese_text_on_sentence_boundaries():
+    chunker = RecursiveTextSplitter(RecursiveTextSplitterConfig(chunk_size=10, overlap=0))
+    documents = [Document(doc_id='d1', text='今日は晴れです。明日は雨です。')]
+
+    chunks = chunker(documents)
+
+    assert [c.text for c in chunks] == ['今日は晴れです', '明日は雨です']
+
+
+def test_falls_back_to_char_splitting_for_japanese_text_without_punctuation():
+    chunk_size = 4
+    chunker = RecursiveTextSplitter(RecursiveTextSplitterConfig(chunk_size=chunk_size, overlap=0))
+    documents = [Document(doc_id='d1', text='吾輩は猫である名前はまだ無い')]
+
+    chunks = chunker(documents)
+
+    assert all(len(c.text) <= chunk_size for c in chunks)
+    assert ''.join(c.text for c in chunks) == '吾輩は猫である名前はまだ無い'
+
+
 def test_empty_document_produces_no_chunks():
     chunker = RecursiveTextSplitter(RecursiveTextSplitterConfig(chunk_size=10, overlap=0))
     documents = [Document(doc_id='d1', text='')]

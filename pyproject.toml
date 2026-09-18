@@ -122,6 +122,8 @@ allowed-confusables = [
     "（",
     "）",
     "：",
+    "，",
+    "．",
 ] # frequently used in Japanese comments and docstrings.
 
 fixable = ["ALL"]
